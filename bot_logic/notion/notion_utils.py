@@ -10,9 +10,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from bot_logic.notion.NotionPage import NotionPage
 
 time_zone = pytz.timezone('Asia/Singapore')
-aware_local_now = datetime.now(time_zone).astimezone()
+aware_local_now = datetime.utcnow(tzinfo=pytz.utc).astimezone(time_zone)
 print("AWARE LOCAL NOW")
-print (aware_local_now)
+print(aware_local_now)
 TASKS_DB = os.environ.get("NOTION_TASKS_DB_ID")
 print(f"tasks db: {TASKS_DB}")
 NOTION_KEY = os.environ.get("NOTION_KEY")
@@ -82,8 +82,8 @@ def build_notion_page(page):
                             date, dueDate, priority, url)
 
 
-def retrieve_tasks_today(filter_done = True):
-    
+def retrieve_tasks_today(filter_done=True):
+
     today_string = aware_local_now.strftime("%Y-%m-%d")
     done_filter = {
         "property": "Done",
@@ -134,7 +134,7 @@ def retrieve_tasks_today(filter_done = True):
     return output
 
 
-def retrieve_tasks_next_week(filter_done = True):
+def retrieve_tasks_next_week(filter_done=True):
     # today = date.today()
 
     today_string = aware_local_now.strftime("%Y-%m-%d")
@@ -252,5 +252,7 @@ def generate_date_grouped_message(list_of_tasks, paginate=False):
         return None
 
 # TODO: REFACTOR - take in paginator and formats it accordingly
+
+
 def format_paginated_buttons(paginator):
     pass
