@@ -10,7 +10,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from bot_logic.notion.NotionPage import NotionPage
 
 time_zone = pytz.timezone('Asia/Singapore')
-aware_local_now = datetime.utcnow(tzinfo=pytz.utc).astimezone(time_zone)
+aware_local_now_temp = datetime.utcnow()
+
+aware_local_now_temp = aware_local_now_temp.replace(tzinfo=pytz.utc)
+aware_local_now = aware_local_now_temp.astimezone(time_zone)
 print("AWARE LOCAL NOW")
 print(aware_local_now)
 TASKS_DB = os.environ.get("NOTION_TASKS_DB_ID")
