@@ -37,7 +37,7 @@ def generate_options_markup(raw=False):
     mark_done_button = InlineKeyboardButton(
         'Mark Done', callback_data="markdone")
 
-    postpone_button = InlineKeyboardButton('Postpone (Coming Soon)',
+    postpone_button = InlineKeyboardButton('Postpone',
                                            callback_data="pp")
 
     if raw:
