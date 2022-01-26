@@ -15,16 +15,17 @@ import os
 from flask import Flask, request
 from threading import Thread
 from queue import Queue
-
-
-
+from datetime import datetime
+import pytz
+from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP,WMonthTelegramCalendar
+time_zone = pytz.timezone('Asia/Singapore')
+now = datetime.now(time_zone)
 
 def test(update, context):
     update.message.reply_text(text="*test*", parse_mode='MarkdownV2')
 
 
 def inline_test(update: Update, context):
-
     keyboard = [
         [
             InlineKeyboardButton(
@@ -37,34 +38,24 @@ def inline_test(update: Update, context):
     update.message.reply_text("hey", reply_markup=reply_markup)
 
 
-def inline_test_callback(update, context):
-    query = update.callback_query
-    print ("Query from inline test callback")
-    print (query)
 
-    print ("Context Data")
-    print (context.user_data)
-    query.answer()
+def calendar_test(update,context):
+    
+    print (now.date())
+    calendar, step = WMonthTelegramCalendar(min_date = now.date()).build()
+    update.message.reply_text(f"Select {LSTEP[step]}",
+                     reply_markup=calendar)
 
-    new_keyboard = [
-        [
-            InlineKeyboardButton(
-                'some task 1', callback_data="markdone#page_id1"),
-            InlineKeyboardButton(
-                'some task 2', callback_data="markdone#page_id2"),
-        ]
-    ]
-    new_markup = InlineKeyboardMarkup(new_keyboard)
-    query.edit_message_text(
-        text="Edited text",
-        reply_markup=new_markup,
-        parse_mode='Markdown')
-
-def inline_test_markdone_callback(update, context):
-    query = update.callback_query
-    print ("Query from markdone callback")
-    print (query)
-    query.answer()
+def calendar_test_callback(update, context):
+    c = update.callback_query
+    print(c.data)
+    result, key, step = WMonthTelegramCalendar(min_date = now.date()).process(c.data)
+    print(type(result))
+    if not result and key:
+        c.edit_message_text(f"Select {LSTEP[step]}",
+                              reply_markup=key)
+    elif result:
+        c.edit_message_text(f"You selected {result}")
 # Bot Setup
 
 
@@ -93,9 +84,15 @@ def setup():
     dispatcher.add_handler(CallbackQueryHandler(notion_handler.markdone_choice_callback, pattern="^markdone"))
     dispatcher.add_handler(CallbackQueryHandler(notion_handler.pagination_callback, pattern="^task_paginator#"))
 
+    dispatcher.add_handler(CallbackQueryHandler(notion_handler.postpone_choose_date, pattern="^pp#"))
+    dispatcher.add_handler(CallbackQueryHandler(notion_handler.postpone_choice_callback, pattern="^pp"))
+    dispatcher.add_handler(CallbackQueryHandler(notion_handler.postpone_callback, pattern="^cbcal_"))
 
     # ! Dev Handlers
-    dispatcher.add_handler(CommandHandler("test", test))
+  
+    # dispatcher.add_handler(CommandHandler("test_cal", calendar_test))
+    # dispatcher.add_handler(CallbackQueryHandler(calendar_test_callback, pattern="^cbcal_"))
+
     dispatcher.add_handler(CommandHandler("inline_test", inline_test))
     
     # dispatcher.add_handler(CallbackQueryHandler(

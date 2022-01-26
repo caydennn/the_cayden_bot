@@ -1,14 +1,19 @@
 from asyncio import tasks
+import pytz
+from datetime import datetime
 
 from csv import excel_tab
 from glob import escape
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from bot_logic.notion.NotionPage import NotionPage
-from bot_logic.notion.notion_utils import generate_date_grouped_message,  generate_options_markup, handle_error, mark_as_done, retrieve_tasks_next_week, retrieve_tasks_today
+from bot_logic.notion.notion_utils import generate_date_grouped_message,  generate_options_markup, handle_error, mark_as_done, postpone, retrieve_tasks_next_week, retrieve_tasks_today
 from telegram.utils.helpers import escape_markdown
 from telegram_bot_pagination import InlineKeyboardPaginator
+from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP,WMonthTelegramCalendar
 
+time_zone = pytz.timezone('Asia/Singapore')
+now = datetime.now(time_zone)
 
 UPCOMING_TASKS_CONTEXT = "upcoming_tasks"
 TODAY_TASKS_CONTEXT = "today_tasks"
@@ -41,10 +46,10 @@ TODAY_TASKS_CONTEXT = "today_tasks"
 """
 /today
 """
-
-
 def get_tasks_today(update: Update, context):
     try:
+        update.message.reply_text("Loading your tasks for today...")
+
         today_tasks = retrieve_tasks_today()
     except requests.exceptions.HTTPError as e:
         update.message.reply_text("Something went wrong")
@@ -52,9 +57,12 @@ def get_tasks_today(update: Update, context):
    
     send_today_response(update, context, today_tasks)
 
-    
+"""
+/today_all
+"""
 def get_tasks_today_all(update: Update, context):
     try:
+        update.message.reply_text("Loading ALL your tasks for today...")
         today_tasks = retrieve_tasks_today(filter_done=False)
     except requests.exceptions.HTTPError as e:
         update.message.reply_text("Something went wrong")
@@ -74,7 +82,7 @@ def send_today_response(update: Update, context, list_of_tasks):
             name = update.effective_user.first_name if update.effective_user.first_name else update.effective_user.username
             options_markup = generate_options_markup()
             update.message.reply_text(
-                f"Hello {name}. Here are your upcoming tasks for today: ")
+                f"Hello {name}. Here are your tasks for today: ")
             update.message.reply_text(
                 "\n".join(reply), parse_mode="MarkdownV2", reply_markup=options_markup)
         else:
@@ -84,13 +92,14 @@ def send_today_response(update: Update, context, list_of_tasks):
         print(e)
         update.message.reply_text(
             "Something went wrong... :/ Please try again later.")
+
+
 """
 /upcoming
 """
-
-
 def get_tasks_upcoming(update: Update, context):
     try:
+        update.message.reply_text("Loading your upcoming tasks...")
         tasks_next_week = retrieve_tasks_next_week(filter_done=True)
     except requests.exceptions.HTTPError as e:
         handle_error(update, context, e)
@@ -99,10 +108,12 @@ def get_tasks_upcoming(update: Update, context):
 
 
 """
-/upcoming_all
+/upcoming_all 
 """
 def get_tasks_upcoming_all(update: Update, context):
     try:
+        update.message.reply_text("Loading ALL your upcoming tasks...")
+
         tasks_next_week = retrieve_tasks_next_week(filter_done=False)
     except requests.exceptions.HTTPError as e:
         handle_error(update, context, e)
@@ -269,3 +280,71 @@ def pagination_callback(update, context):
         reply_markup=paginator.markup,
         parse_mode='MarkdownV2'
     )
+
+
+def postpone_choice_callback(update, context):
+    query = update.callback_query
+    query.answer()
+    task_context = context.user_data["task_context"]
+    tasks = context.user_data[task_context]
+
+    keyboard = []
+    temp = []
+
+    for task in tasks:
+        print("TASk")
+        print(task.getTitle())
+        if (task.getDone() == False):
+            temp.append(InlineKeyboardButton(task.getTitle(),
+                        callback_data=f"pp#{task.getPageId()}"))
+            print(temp)
+            if len(temp) == 2:
+                keyboard.append(temp)
+                temp = []
+    if len(temp) > 0:
+        keyboard.append(temp)
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    query.edit_message_reply_markup(reply_markup=reply_markup)
+
+def postpone_choose_date(update, context):
+    query = update.callback_query
+    task_context = context.user_data["task_context"]
+    print(f"TASK CONTEXT: {task_context}")
+
+    _, pageId = query.data.split('#')
+    context.user_data["task_to_postpone"] = pageId
+
+    calendar, step = WMonthTelegramCalendar(min_date = now.date()).build()
+    query.edit_message_reply_markup(reply_markup=calendar)
+    
+    # update.message.reply_text(f"Select {LSTEP[step]}",
+    #                     reply_markup=calendar)
+
+def postpone_callback(update, context):
+    task_context = context.user_data["task_context"]
+    tasks = context.user_data[task_context]
+
+    task_id_to_postpone = context.user_data["task_to_postpone"] 
+    c = update.callback_query
+    print(c.data)
+    result, key, step = WMonthTelegramCalendar(min_date = now.date()).process(c.data)
+    print(type(result))
+    if not result and key:
+        c.eedit_message_reply_markup(reply_markup=key)
+    elif result:
+        # c.edit_message_text(f"You selected {result}")
+        try: 
+            
+            postpone(task_id_to_postpone, result)
+            
+            for task in tasks:
+                pageTitle = "Your task"
+                if task.getPageId() == task_id_to_postpone:
+                    pageTitle = task.getIcon() + task.getTitle()
+                    break 
+            c.edit_message_text(f"{pageTitle} has been postponed to {result}")
+
+        except requests.exceptions.HTTPError as e:
+            update.message.reply_text("Something went wrong")
+            return
