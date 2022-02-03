@@ -48,7 +48,8 @@ class NotionPage:
                     self.date["type"] = "date"
                 self.date["end"] = parse(self.date["end"])
         if self.dueDate:
-            self.dueDate = datetime.strptime(self.dueDate, "%Y-%m-%d")
+            self.dueDate = datetime.fromisoformat(self.dueDate)
+            # self.dueDate = datetime.strptime(self.dueDate, "%Y-%m-%dT%H:%M:%S%z")
             print(f"converted to date: {self.dueDate}")
 
     def _escape_markdown(self, text, version=2):
