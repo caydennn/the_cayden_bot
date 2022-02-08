@@ -6,11 +6,12 @@ from csv import excel_tab
 from glob import escape
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from bot_logic.notion.MyPaginator import MyPaginator
 from bot_logic.notion.NotionPage import NotionPage
 from bot_logic.notion.notion_utils import generate_date_grouped_message,  generate_options_markup, handle_error, mark_as_done, postpone, retrieve_tasks_next_week, retrieve_tasks_today
 from telegram.utils.helpers import escape_markdown
 from telegram_bot_pagination import InlineKeyboardPaginator
-from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP,WMonthTelegramCalendar
+from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP, WMonthTelegramCalendar
 
 time_zone = pytz.timezone('Asia/Singapore')
 now = datetime.now(time_zone)
@@ -46,6 +47,8 @@ TODAY_TASKS_CONTEXT = "today_tasks"
 """
 /today
 """
+
+
 def get_tasks_today(update: Update, context):
     try:
         update.message.reply_text("Loading your tasks for today...")
@@ -54,12 +57,15 @@ def get_tasks_today(update: Update, context):
     except requests.exceptions.HTTPError as e:
         update.message.reply_text("Something went wrong")
         return
-   
+
     send_today_response(update, context, today_tasks)
+
 
 """
 /today_all
 """
+
+
 def get_tasks_today_all(update: Update, context):
     try:
         update.message.reply_text("Loading ALL your tasks for today...")
@@ -67,11 +73,11 @@ def get_tasks_today_all(update: Update, context):
     except requests.exceptions.HTTPError as e:
         update.message.reply_text("Something went wrong")
         return
-   
+
     send_today_response(update, context, today_tasks)
 
 
-def send_today_response(update: Update, context, list_of_tasks):
+def send_today_response(update: Update, context, list_of_tasks, query=None):
     try:
         reply = []
         for task in list_of_tasks:
@@ -81,10 +87,15 @@ def send_today_response(update: Update, context, list_of_tasks):
             context.user_data[TODAY_TASKS_CONTEXT] = list_of_tasks
             name = update.effective_user.first_name if update.effective_user.first_name else update.effective_user.username
             options_markup = generate_options_markup()
-            update.message.reply_text(
-                f"Hello {name}. Here are your tasks for today: ")
-            update.message.reply_text(
-                "\n".join(reply), parse_mode="MarkdownV2", reply_markup=options_markup)
+
+            if query:
+                query.edit_message_text(
+                    "\n".join(reply), parse_mode="MarkdownV2", reply_markup=options_markup)
+            else:
+                update.message.reply_text(
+                    f"Hello {name}. Here are your tasks for today: ")
+                update.message.reply_text(
+                    "\n".join(reply), parse_mode="MarkdownV2", reply_markup=options_markup)
         else:
             update.message.reply_text("You have no tasks today")
 
@@ -97,6 +108,8 @@ def send_today_response(update: Update, context, list_of_tasks):
 """
 /upcoming
 """
+
+
 def get_tasks_upcoming(update: Update, context):
     try:
         update.message.reply_text("Loading your upcoming tasks...")
@@ -108,28 +121,32 @@ def get_tasks_upcoming(update: Update, context):
 
 
 """
-/upcoming_all 
+/upcoming_all
 """
+
+
 def get_tasks_upcoming_all(update: Update, context):
     try:
         update.message.reply_text("Loading ALL your upcoming tasks...")
-
         tasks_next_week = retrieve_tasks_next_week(filter_done=False)
+
     except requests.exceptions.HTTPError as e:
         handle_error(update, context, e)
 
     send_upcoming_response(update, context, tasks_next_week)
 
 
-def send_upcoming_response(update: Update, context, list_of_tasks):
+def send_upcoming_response(update: Update, context, list_of_tasks, query=None):
+    print("Query: {}".format(query))
+
     try:
         paginate = False
         if len(list_of_tasks) < 4:
             output = generate_date_grouped_message(list_of_tasks)
         else:
             paginate = True
-            output = generate_date_grouped_message(
-                list_of_tasks, paginate=True)
+            output, paginator_labels = generate_date_grouped_message(
+                list_of_tasks, paginate)
 
             # output = paginated_output[0]
 
@@ -138,8 +155,6 @@ def send_upcoming_response(update: Update, context, list_of_tasks):
             context.user_data[UPCOMING_TASKS_CONTEXT] = list_of_tasks
 
             name = update.effective_user.first_name if update.effective_user.first_name else update.effective_user.username
-            update.message.reply_text(
-                f"Hello {name}. Here are your upcoming tasks for the next week: ")
 
             if paginate:
                 paginator = InlineKeyboardPaginator(
@@ -147,45 +162,42 @@ def send_upcoming_response(update: Update, context, list_of_tasks):
                     data_pattern='task_paginator#{page}'
                 )
 
-                paginator_labels = [
-                    task.getStartDateString(showWeekday=False, showYear=False) for task in list_of_tasks]
-
-                print ("paginator labels")
-                print (paginator_labels)
-
-
-
-                paginator.current_page_label = paginator_labels[0] 
-                paginator.next_page_label = ">"
-                paginator.previous_page_label = "<"
-
+                paginator.current_page_label = paginator_labels[0]
                 context.user_data[UPCOMING_TASKS_CONTEXT +
                                   "-paginate-data"] = output
                 context.user_data[UPCOMING_TASKS_CONTEXT +
                                   "-paginator-labels"] = paginator_labels
 
-
-
                 options_buttons = generate_options_markup(raw=True)
                 for button in options_buttons:
                     paginator.add_before(button)
-                update.message.reply_text(
-                    text=output[0],
-                    reply_markup=paginator.markup,
-                    parse_mode='MarkdownV2'
-                )
+
+                if query:
+                    query.edit_message_text(text=output[0], reply_markup=paginator.markup,
+                                            parse_mode='MarkdownV2')
+                else:
+                    update.effective_message.reply_text(f"Hello {name}. Here are your upcoming tasks for the next week: ")
+                    update.message.reply_text(
+                        text=output[0],
+                        reply_markup=paginator.markup,
+                        parse_mode='MarkdownV2'
+                    )
             else:
+                print ("Not paginating!")
                 options_markup = generate_options_markup()
-                update.message.reply_text(
+                update.effective_message.reply_text(
                     output, parse_mode="MarkdownV2", reply_markup=options_markup)
         else:
-            update.message.reply_text("You have no upcoming tasks!")
+            update.effective_message.reply_text("You have no upcoming tasks!")
     except Exception as e:
         print(e)
-        update.message.reply_text(
+        update.effective_message.reply_text(
             "Something went wrong... :/ Please try again later.")
 
-
+"""
+Prompts user to choose the task they want to mark done
+TODO: Refactor, this is equivalent to postpone_choice_callback.
+"""
 def markdone_choice_callback(update: Update, context):
     # Don't need to edit text, just give the user a keyboard to select which task to mark done
     query = update.callback_query
@@ -197,8 +209,6 @@ def markdone_choice_callback(update: Update, context):
     temp = []
 
     for task in tasks:
-        print("TASk")
-        print(task.getTitle())
         if (task.getDone() == False):
             temp.append(InlineKeyboardButton(task.getTitle(),
                         callback_data=f"markdone#{task.getPageId()}"))
@@ -216,7 +226,6 @@ def markdone_choice_callback(update: Update, context):
 def markdone_callback(update: Update, context):
     query = update.callback_query
     task_context = context.user_data["task_context"]
-    print(f"TASK CONTEXT: {task_context}")
     _, pageId = query.data.split('#')
 
     try:
@@ -226,25 +235,19 @@ def markdone_callback(update: Update, context):
 
             if task.getPageId() == pageId:
                 pageTitle = task.getTitle()
+                query.answer(
+                    f"Marking {pageTitle if pageTitle else pageId} as done...")
                 # remove from the list
+                mark_as_done(pageId)
                 upcoming_tasks.remove(task)
-            elif task.getDone():
-                upcoming_tasks.remove(task)
-
-        query.answer(
-            f"Marking {pageTitle if pageTitle else pageId} as done...")
-        mark_as_done(pageId)
+            # elif task.getDone():
+            #     upcoming_tasks.remove(task)
 
         # refresh message with output
-        context.user_data[task_context] = upcoming_tasks
-        output = generate_date_grouped_message(upcoming_tasks)
-        if output:
-            update.effective_message.reply_text(
-                f"Nice! Here are your remaining tasks")
-            query.edit_message_text(text=output, parse_mode="MarkdownV2")
-        else:
-            query.edit_message_text(
-                text="No more tasks left", parse_mode="MarkdownV2")
+        if task_context == UPCOMING_TASKS_CONTEXT:
+            send_upcoming_response(update, context, upcoming_tasks, query=query)
+        elif task_context == TODAY_TASKS_CONTEXT:
+            send_today_response(update, context, upcoming_tasks, query=query)
 
     except Exception as e:
         query.edit_message_text("Sorry something went wrong")
@@ -274,14 +277,16 @@ def pagination_callback(update, context):
     for button in options_buttons:
         paginator.add_before(button)
 
-    
     query.edit_message_text(
         text=paginate_data[page - 1],
         reply_markup=paginator.markup,
         parse_mode='MarkdownV2'
     )
 
-
+"""
+Prompts user to choose the task they want to postpone 
+TODO: Refactor, this is equivalent to markdone_choice_callback.
+"""
 def postpone_choice_callback(update, context):
     query = update.callback_query
     query.answer()
@@ -292,8 +297,7 @@ def postpone_choice_callback(update, context):
     temp = []
 
     for task in tasks:
-        print("TASk")
-        print(task.getTitle())
+        
         if (task.getDone() == False):
             temp.append(InlineKeyboardButton(task.getTitle(),
                         callback_data=f"pp#{task.getPageId()}"))
@@ -307,6 +311,7 @@ def postpone_choice_callback(update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     query.edit_message_reply_markup(reply_markup=reply_markup)
 
+
 def postpone_choose_date(update, context):
     query = update.callback_query
     task_context = context.user_data["task_context"]
@@ -315,36 +320,47 @@ def postpone_choose_date(update, context):
     _, pageId = query.data.split('#')
     context.user_data["task_to_postpone"] = pageId
 
-    calendar, step = WMonthTelegramCalendar(min_date = now.date()).build()
+    calendar, step = WMonthTelegramCalendar(min_date=now.date()).build()
     query.edit_message_reply_markup(reply_markup=calendar)
-    
+
     # update.message.reply_text(f"Select {LSTEP[step]}",
     #                     reply_markup=calendar)
+
 
 def postpone_callback(update, context):
     task_context = context.user_data["task_context"]
     tasks = context.user_data[task_context]
 
-    task_id_to_postpone = context.user_data["task_to_postpone"] 
+    task_id_to_postpone = context.user_data["task_to_postpone"]
     c = update.callback_query
     print(c.data)
-    result, key, step = WMonthTelegramCalendar(min_date = now.date()).process(c.data)
+    result, key, step = WMonthTelegramCalendar(
+        min_date=now.date()).process(c.data)
     print(type(result))
+
+    # If paginating between months -> 
+    # result is None, 
+    # key is the markup for the requested month
     if not result and key:
-        c.eedit_message_reply_markup(reply_markup=key)
+        c.edit_message_reply_markup(reply_markup=key)
     elif result:
         # c.edit_message_text(f"You selected {result}")
-        try: 
-            
+        try:
+
             postpone(task_id_to_postpone, result)
-            
+
             for task in tasks:
                 pageTitle = "Your task"
                 if task.getPageId() == task_id_to_postpone:
                     pageTitle = task.getIcon() + task.getTitle()
-                    break 
-            c.edit_message_text(f"{pageTitle} has been postponed to {result}")
-
+                    tasks.remove(task)
+                    break
+            # update.effective_message.reply_text(f"{pageTitle} has been postponed to {result}")
+            c.answer(f"{pageTitle} has been postponed to {result}", show_alert=True)
+            if task_context == UPCOMING_TASKS_CONTEXT:
+                send_upcoming_response(update, context, tasks, query=c)
+            elif task_context == TODAY_TASKS_CONTEXT:
+                send_today_response(update, context, tasks, query=c)
         except requests.exceptions.HTTPError as e:
             update.message.reply_text("Something went wrong")
             return
