@@ -317,7 +317,7 @@ def generate_date_grouped_message(list_of_tasks, paginate=False):
         if paginate:
             # output = output.rstrip("@")
             paginated_temp = output.split("@")
-            return paginated_temp
+            return paginated_temp, list(temp_dict.keys())
         return output
     else:
         return None
